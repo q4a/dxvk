@@ -13,6 +13,7 @@ namespace dxvk::wsi {
 
   std::optional<WsiDisplayMetadata> parseColorimetryInfo(
     const WsiEdidData&        edidData) {
+    Logger::err("parseColorimetryInfo");
     WsiDisplayMetadata metadata = {};
 
     di_info* info = di_info_parse_edid(edidData.data(), edidData.size());
@@ -21,12 +22,15 @@ namespace dxvk::wsi {
       return std::nullopt;
     }
 
+    Logger::err("parseColorimetryInfo: di_info_get_edid");
     const di_edid* edid = di_info_get_edid(info);
 
+    Logger::err("parseColorimetryInfo: di_edid_get_chromaticity_coords");
     const di_edid_chromaticity_coords* chroma = di_edid_get_chromaticity_coords(edid);
     const di_cta_hdr_static_metadata_block* hdr_static_metadata = nullptr;
     const di_cta_colorimetry_block* colorimetry = nullptr;
 
+    Logger::err("parseColorimetryInfo: di_edid_get_extensions");
     const di_edid_cta* cta = nullptr;
     const di_edid_ext* const* exts = di_edid_get_extensions(edid);
     for (; *exts != nullptr; exts++) {
@@ -35,6 +39,7 @@ namespace dxvk::wsi {
     }
 
     if (cta) {
+      Logger::err("parseColorimetryInfo: di_edid_cta_get_data_blocks");
       const di_cta_data_block* const* blocks = di_edid_cta_get_data_blocks(cta);
       for (; *blocks != nullptr; blocks++) {
         if ((hdr_static_metadata = di_cta_data_block_get_hdr_static_metadata(*blocks)))
@@ -66,8 +71,10 @@ namespace dxvk::wsi {
       colorimetry && colorimetry->bt2020_rgb &&
       hdr_static_metadata && hdr_static_metadata->eotfs && hdr_static_metadata->eotfs->pq;
 
+    Logger::err("parseColorimetryInfo: di_info_destroy");
     di_info_destroy(info);
 
+    Logger::err("parseColorimetryInfo: done");
     return metadata;
   }
 

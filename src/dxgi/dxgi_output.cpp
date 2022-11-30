@@ -205,6 +205,8 @@ namespace dxvk {
     if (pDesc == nullptr)
       return DXGI_ERROR_INVALID_CALL;
     
+    Logger::err("GetDesc1");
+
     if (!wsi::getDesktopCoordinates(m_monitor, &pDesc->DesktopCoordinates)) {
       Logger::err("DXGI: Failed to query monitor coords");
       return E_FAIL;
@@ -635,11 +637,14 @@ namespace dxvk {
 
 
   void DxgiOutput::CacheMonitorData() {
+    Logger::err(str::format("CacheMonitorData: hMonitor = ", m_monitor));
+
     // Try and find an existing monitor info.
     DXGI_VK_MONITOR_DATA* pMonitorData;
     if (SUCCEEDED(m_monitorInfo->AcquireMonitorData(m_monitor, &pMonitorData))) {
       m_metadata = pMonitorData->DisplayMetadata;
       m_monitorInfo->ReleaseMonitorData();
+      Logger::err("CacheMonitorData: returning existing data");
       return;
     }
 
@@ -659,16 +664,21 @@ namespace dxvk {
     wsi::getCurrentDisplayMode(m_monitor, &activeWsiMode);
 
     // Get the display metadata + colorimetry
+    Logger::err("CacheMonitorData: querying monitor EDID");
     wsi::WsiEdidData edidData = wsi::getMonitorEdid(m_monitor);
     std::optional<wsi::WsiDisplayMetadata> metadata = std::nullopt;
-    if (!edidData.empty())
+
+    if (!edidData.empty()) {
+      Logger::err("CacheMonitorData: parsing monitor EDID");
       metadata = wsi::parseColorimetryInfo(edidData);
+    }
 
     if (metadata)
       m_metadata = metadata.value();
     else
       Logger::err("DXGI: Failed to parse display metadata + colorimetry info, using blank.");
 
+    Logger::err("CacheMonitorData: initializing frame statistics");
     monitorData.FrameStats.SyncQPCTime.QuadPart = dxvk::high_resolution_clock::get_counter();
     monitorData.GammaCurve.Scale = { 1.0f, 1.0f, 1.0f };
     monitorData.GammaCurve.Offset = { 0.0f, 0.0f, 0.0f };
@@ -680,7 +690,9 @@ namespace dxvk {
       monitorData.GammaCurve.GammaCurve[i] = { value, value, value };
     }
 
+    Logger::err("CacheMonitorData: committing data");
     m_monitorInfo->InitMonitorData(m_monitor, &monitorData);
+    Logger::err("CacheMonitorData: done");
   }
 
 }

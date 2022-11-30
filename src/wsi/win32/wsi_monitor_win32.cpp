@@ -137,9 +137,11 @@ namespace dxvk::wsi {
   }
 
   static std::wstring getMonitorDevicePath(HMONITOR hMonitor) {
+    Logger::err(str::format("wsi::getMonitorDevicePath: hMonitor = ", hMonitor));
     // Get the device name of the monitor.
     MONITORINFOEXW monInfo;
     monInfo.cbSize = sizeof(monInfo);
+
     if (!::GetMonitorInfoW(hMonitor, &monInfo)) {
       Logger::err("getMonitorDevicePath: Failed to get monitor info.");
       return {};
@@ -151,11 +153,13 @@ namespace dxvk::wsi {
     std::vector<DISPLAYCONFIG_PATH_INFO> paths;
     std::vector<DISPLAYCONFIG_MODE_INFO> modes;
     do {
+      Logger::err(str::format("wsi::getMonitorDevicePath: GetDisplayConfigBufferSizes"));
       uint32_t pathCount = 0, modeCount = 0;
       if ((result = ::GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount)) != ERROR_SUCCESS) {
         Logger::err(str::format("getMonitorDevicePath: GetDisplayConfigBufferSizes failed. ret: ", result, " LastError: ", GetLastError()));
         return {};
       }
+      Logger::err(str::format("wsi::getMonitorDevicePath: QueryDisplayConfig"));
       paths.resize(pathCount);
       modes.resize(modeCount);
       result = ::QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr);
@@ -168,6 +172,7 @@ namespace dxvk::wsi {
 
     // Link a source name -> target name
     for (const auto& path : paths) {
+      Logger::err(str::format("wsi::getMonitorDevicePath: DisplayConfigGetDeviceInfo 1"));
       DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName;
       sourceName.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
       sourceName.header.size      = sizeof(sourceName);
@@ -178,6 +183,7 @@ namespace dxvk::wsi {
         continue;
       }
 
+      Logger::err(str::format("wsi::getMonitorDevicePath: DisplayConfigGetDeviceInfo 2"));
       DISPLAYCONFIG_TARGET_DEVICE_NAME targetName;
       targetName.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
       targetName.header.size      = sizeof(targetName);
@@ -190,8 +196,10 @@ namespace dxvk::wsi {
 
       // Does the source match the GDI device we are looking for?
       // If so, return the target back.
-      if (!wcscmp(sourceName.viewGdiDeviceName, monInfo.szDevice))
+      if (!wcscmp(sourceName.viewGdiDeviceName, monInfo.szDevice)) {
+        Logger::err(str::format("wsi::getMonitorDevicePath: done"));
         return targetName.monitorDevicePath;
+      }
     }
 
     Logger::err("getMonitorDevicePath: Failed to find a link from source -> target.");
@@ -199,18 +207,21 @@ namespace dxvk::wsi {
   }
 
   static WsiEdidData readMonitorEdidFromKey(HKEY deviceRegKey) {
+    Logger::err(str::format("wsi::readMonitorEdidFromKey: RegQueryValueExW 1"));
     DWORD edidSize = 0;
     if (::RegQueryValueExW(deviceRegKey, L"EDID", nullptr, nullptr, nullptr, &edidSize) != ERROR_SUCCESS) {
       Logger::err("readMonitorEdidFromKey: Failed to get EDID reg key size");
       return {};
     }
 
+    Logger::err(str::format("wsi::readMonitorEdidFromKey: RegQueryValueExW 2"));
     WsiEdidData edidData(edidSize);
     if (::RegQueryValueExW(deviceRegKey, L"EDID", nullptr, nullptr, edidData.data(), &edidSize) != ERROR_SUCCESS) {
       Logger::err("readMonitorEdidFromKey: Failed to get EDID reg key data");
       return {};
     }
 
+    Logger::err(str::format("wsi::readMonitorEdidFromKey: done"));
     return edidData;
   }
 
@@ -224,6 +235,8 @@ namespace dxvk::wsi {
   };
 
   WsiEdidData getMonitorEdid(HMONITOR hMonitor) {
+    Logger::err(str::format("wsi::getMonitorEdid: hMonitor = ", hMonitor));
+
     static constexpr GUID GUID_DEVINTERFACE_MONITOR = { 0xe6f07b5f, 0xee97, 0x4a90, 0xb0, 0x76, 0x33, 0xf5, 0x7b, 0xf4, 0xea, 0xa7 };
     static auto pfnSetupDiGetClassDevsW             = reinterpret_cast<decltype(SetupDiGetClassDevsW)*>            (::GetProcAddress(::GetModuleHandleW(L"setupapi.dll"), "SetupDiGetClassDevsW"));
     static auto pfnSetupDiEnumDeviceInterfaces      = reinterpret_cast<decltype(SetupDiEnumDeviceInterfaces)*>     (::GetProcAddress(::GetModuleHandleW(L"setupapi.dll"), "SetupDiEnumDeviceInterfaces"));
@@ -235,18 +248,21 @@ namespace dxvk::wsi {
       return {};
     }
 
+    Logger::err("wsi::getMonitorEdid: getMonitorDevicePath");
     std::wstring monitorDevicePath = getMonitorDevicePath(hMonitor);
     if (monitorDevicePath.empty()) {
       Logger::err("getMonitorEdid: Failed to get monitor device path.");
       return {};
     }
 
+    Logger::err("wsi::getMonitorEdid: SetupDiGetClassDevsW");
     const HDEVINFO devInfo = pfnSetupDiGetClassDevsW(&GUID_DEVINTERFACE_MONITOR, nullptr, nullptr, DIGCF_DEVICEINTERFACE);
 
     SP_DEVICE_INTERFACE_DATA interfaceData;
     memset(&interfaceData, 0, sizeof(interfaceData));
     interfaceData.cbSize = sizeof(interfaceData);
 
+    Logger::err("wsi::getMonitorEdid: SetupDiEnumDeviceInterfaces");
     for (DWORD monitorIdx = 0; pfnSetupDiEnumDeviceInterfaces(devInfo, nullptr, &GUID_DEVINTERFACE_MONITOR, monitorIdx, &interfaceData); monitorIdx++) {
       DxvkDeviceInterfaceDetail detailData;
       // Josh: I'm taking no chances here. I don't trust this API at all.
@@ -257,6 +273,7 @@ namespace dxvk::wsi {
       memset(&devInfoData, 0, sizeof(devInfoData));
       devInfoData.cbSize = sizeof(devInfoData);
 
+      Logger::err("wsi::getMonitorEdid: SetupDiGetDeviceInterfaceDetailW");
       if (!pfnSetupDiGetDeviceInterfaceDetailW(devInfo, &interfaceData, &detailData.base, sizeof(detailData), nullptr, &devInfoData))
         continue;
 
@@ -267,16 +284,20 @@ namespace dxvk::wsi {
       if (_wcsicmp(monitorDevicePath.c_str(), detailData.base.DevicePath) != 0)
         continue;
 
+      Logger::err("wsi::getMonitorEdid: SetupDiOpenDevRegKey");
       HKEY deviceRegKey = pfnSetupDiOpenDevRegKey(devInfo, &devInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
       if (deviceRegKey == INVALID_HANDLE_VALUE) {
         Logger::err("getMonitorEdid: Failed to open monitor device registry key.");
         return {};
       }
 
+      Logger::err("wsi::getMonitorEdid: readMonitorEdidFromKey");
       auto edidData = readMonitorEdidFromKey(deviceRegKey);
 
+      Logger::err("wsi::getMonitorEdid: RegCloseKey");
       ::RegCloseKey(deviceRegKey);
 
+      Logger::err("wsi::getMonitorEdid: done");
       return edidData;
     }
 
